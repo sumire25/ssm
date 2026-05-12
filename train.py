@@ -1,4 +1,5 @@
 # Reference list: hayatkhan8660-maker. 2022. Light-DehazeNet. GitHub. https://github.com/hayatkhan8660-maker/Light-DehazeNet
+import os  # MODIFIED: Added os import
 import torch
 import torch.nn as nn
 import torchvision
@@ -22,6 +23,10 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def train(args):
+    # MODIFIED: Ensure output directories exist
+    os.makedirs("trained_weights", exist_ok=True)
+    os.makedirs("training_data_captures", exist_ok=True)
+
     lfd_net = model.LFD_Net().cuda()
     lfd_net.apply(weights_init)
 
@@ -33,9 +38,11 @@ def train(args):
 
     training_data = image_data_loader.hazy_data_loader(args["train_original"], args["train_hazy"])
     validation_data = image_data_loader.hazy_data_loader(args["train_original"], args["train_hazy"], mode="val")
-    training_data_loader = torch.utils.data.DataLoader(training_data, batch_size=8, shuffle=True, num_workers=4,
+    
+    # MODIFIED: Changed num_workers from 4 to 2 to match Colab hardware
+    training_data_loader = torch.utils.data.DataLoader(training_data, batch_size=8, shuffle=True, num_workers=2,
                                                        pin_memory=True)
-    validation_data_loader = torch.utils.data.DataLoader(validation_data, batch_size=8, shuffle=True, num_workers=4,
+    validation_data_loader = torch.utils.data.DataLoader(validation_data, batch_size=8, shuffle=True, num_workers=2,
                                                          pin_memory=True)
 
     criterion = nn.MSELoss().cuda()

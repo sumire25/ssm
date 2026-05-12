@@ -22,9 +22,11 @@ def preparing_training_data(hazefree_images_dir, hazeeffected_images_dir):
 		# These images should be either skipped or treated using an alternative preprocessing method.
 		if Image.open(os.path.join(hazeeffected_images_dir, h_image)).mode != 'RGB':
 			continue
-		# It is required that the clear and hazy image pairs have the same file name or at least the same prefix.
+		
+		# MODIFIED: Adjusted for exact filename mapping (RICE1)
 		h_image = h_image.split("/")[-1]
-		id_ = h_image.split("_")[0] + '.jpg'
+		id_ = h_image 
+		
 		if Image.open(os.path.join(hazefree_images_dir, id_)).mode != 'RGB':
 			continue
 		if id_ in data_holder.keys():
@@ -75,8 +77,9 @@ class hazy_data_loader(data.Dataset):
 		hazefree_image = Image.open(hazefree_image_path)
 		hazy_image = Image.open(hazy_image_path)
 
-		hazefree_image = hazefree_image.resize((480,640), Image.ANTIALIAS)
-		hazy_image = hazy_image.resize((480,640), Image.ANTIALIAS)
+		# MODIFIED: Changed ANTIALIAS to LANCZOS
+		hazefree_image = hazefree_image.resize((480,640), Image.LANCZOS)
+		hazy_image = hazy_image.resize((480,640), Image.LANCZOS)
 
 		hazefree_image = (np.asarray(hazefree_image) / 255.0) 
 		hazy_image = (np.asarray(hazy_image) / 255.0) 
