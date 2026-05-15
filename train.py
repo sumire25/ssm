@@ -1,5 +1,4 @@
-# Reference list: hayatkhan8660-maker. 2022. Light-DehazeNet. GitHub. https://github.com/hayatkhan8660-maker/Light-DehazeNet
-import os  # MODIFIED: Added os import
+import os
 import torch
 import torch.nn as nn
 import torchvision
@@ -23,23 +22,18 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def train(args):
-    # MODIFIED: Ensure output directories exist
+    # Asegurar que los directorios de salida existan
     os.makedirs("trained_weights", exist_ok=True)
     os.makedirs("training_data_captures", exist_ok=True)
 
-    lfd_net = model.LFD_Net().cuda()
+    # Instanciar el modelo con Mamba (SSM)
+    lfd_net = model.LFD_Net_SSM().cuda()
     lfd_net.apply(weights_init)
 
-    """
-    path = 'trained_weights/outdoor.pth'
-    checkpoint = torch.load(path, map_location=device)
-    lfd_net.load_state_dict(checkpoint)
-    """
-
+    # Cargar conjuntos de datos de forma independiente
     training_data = image_data_loader.hazy_data_loader(args["train_original"], args["train_hazy"])
-    validation_data = image_data_loader.hazy_data_loader(args["train_original"], args["train_hazy"], mode="val")
+    validation_data = image_data_loader.hazy_data_loader(args["val_original"], args["val_hazy"], mode="val")
     
-    # MODIFIED: Changed num_workers from 4 to 2 to match Colab hardware
     training_data_loader = torch.utils.data.DataLoader(training_data, batch_size=8, shuffle=True, num_workers=2,
                                                        pin_memory=True)
     validation_data_loader = torch.utils.data.DataLoader(validation_data, batch_size=8, shuffle=True, num_workers=2,
@@ -47,41 +41,62 @@ def train(args):
 
     criterion = nn.MSELoss().cuda()
     optimizer = torch.optim.Adam(lfd_net.parameters(), lr=float(args["learning_rate"]), weight_decay=0.0001)
-    scheduler = CosineAnnealingLR(optimizer, T_max=50)
+    
+    num_of_epochs = int(args["epochs"])
+    
+    # Corrección Matemática del Scheduler: 
+    # Como scheduler.step() se llama por iteración, T_max debe ser el número total de iteraciones.
+    total_iterations = num_of_epochs * len(training_data_loader)
+    scheduler = CosineAnnealingLR(optimizer, T_max=total_iterations)
+    
     lfd_net.train()
 
-    num_of_epochs = int(args["epochs"])
     for epoch in range(num_of_epochs):
         for iteration, (hazefree_image, hazy_image) in enumerate(training_data_loader):
             hazefree_image = hazefree_image.cuda()
             hazy_image = hazy_image.cuda()
             dehaze_image = lfd_net(hazy_image)
+            
             loss = criterion(dehaze_image, hazefree_image)
             optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(lfd_net.parameters(), 0.1)
+            
             optimizer.step()
-            scheduler.step()
+            scheduler.step() # El descenso del coseno ocurre paso a paso
+            
             if ((iteration + 1) % 10) == 0:
-                print("Loss at iteration", iteration + 1, ":", loss.item())
+                print("Epoch:", epoch, "| Loss at iteration", iteration + 1, ":", loss.item())
             if ((iteration + 1) % 200) == 0:
                 torch.save(lfd_net.state_dict(), "trained_weights/" + "Epoch_" + str(epoch) + '.pth')
 
-        # Validation Stage
-        for iter_val, (hazefree_image, hazy_image) in enumerate(validation_data_loader):
-            hazefree_image = hazefree_image.cuda()
-            hazy_image = hazy_image.cuda()
-            dehaze_image = lfd_net(hazy_image)
-            torchvision.utils.save_image(torch.cat((hazy_image, dehaze_image, hazefree_image), 0),
-                                         "training_data_captures/" + str(iter_val + 1) + ".jpg")
+        # Fase de Validación (Asegurar que los gradientes no se calculen ni almacenen)
+        lfd_net.eval()
+        with torch.no_grad():
+            for iter_val, (hazefree_image, hazy_image) in enumerate(validation_data_loader):
+                hazefree_image = hazefree_image.cuda()
+                hazy_image = hazy_image.cuda()
+                dehaze_image = lfd_net(hazy_image)
+                torchvision.utils.save_image(torch.cat((hazy_image, dehaze_image, hazefree_image), 0),
+                                             "training_data_captures/" + str(iter_val + 1) + ".jpg")
+        lfd_net.train()
 
+        # Guardar pesos al final de cada época
         torch.save(lfd_net.state_dict(), "trained_weights/" + "Epoch_" + str(epoch) + '.pth')
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
+    
+    # Argumentos de Entrenamiento
     ap.add_argument("-th", "--train_hazy", required=True, help="path to hazy training images")
     ap.add_argument("-to", "--train_original", required=True, help="path to original training images")
+    
+    # Argumentos de Validación
+    ap.add_argument("-vh", "--val_hazy", required=True, help="path to hazy validation images")
+    ap.add_argument("-vo", "--val_original", required=True, help="path to original validation images")
+    
+    # Hiperparámetros
     ap.add_argument("-e", "--epochs", required=True, help="number of epochs for training")
     ap.add_argument("-lr", "--learning_rate", required=True, help="learning rate for training")
 
