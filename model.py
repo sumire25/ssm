@@ -5,32 +5,51 @@ from mamba_ssm import Mamba
 class VisionSSMBlock(nn.Module):
     """
     State-Space Model block adapting 2D feature maps to 1D continuous sequence processing.
-    Achieves global receptive field with O(N) complexity.
+    Uses Patch Embedding to compress the sequence length and prevent OOM errors.
     """
-    def __init__(self, dim):
+    def __init__(self, dim, patch_size=8):
         super(VisionSSMBlock, self).__init__()
-        self.norm = nn.LayerNorm(dim)
-        # Mamba operates as a selective state-space model
+        self.patch_size = patch_size
+        self.embed_dim = dim * 2  # Expand channels slightly to retain information lost spatially
+        
+        # 1. Patch Embedding (Downsampling spatial dims, expanding channels)
+        self.patch_embed = nn.Conv2d(dim, self.embed_dim, kernel_size=patch_size, stride=patch_size)
+        self.norm = nn.LayerNorm(self.embed_dim)
+        
+        # 2. Mamba Block (Now operates on a tiny, manageable sequence)
         self.mamba = Mamba(
-            d_model=dim, # Model dimension (channels)
-            d_state=16,  # SSM state expansion factor
-            d_conv=4,    # Local convolution width
-            expand=2,    # Block expansion factor
+            d_model=self.embed_dim, 
+            d_state=16,  
+            d_conv=4,    
+            expand=2,    
         )
+        
+        # 3. Patch Reconstruction (Upsampling back to original spatial resolution)
+        self.patch_unembed = nn.ConvTranspose2d(self.embed_dim, dim, kernel_size=patch_size, stride=patch_size)
 
     def forward(self, x):
         B, C, H, W = x.shape
         
-        # 1. Flatten spatial dimensions: (B, C, H, W) -> (B, C, H*W) -> (B, H*W, C)
-        x_flat = x.flatten(2).transpose(1, 2)
+        # --- 1. Patchify ---
+        # Shape: (B, embed_dim, H/P, W/P)
+        x_patched = self.patch_embed(x)
+        _, _, H_p, W_p = x_patched.shape
         
-        # 2. Apply Normalization and SSM 
-        # The SSM implicitly calculates the global atmospheric light dependencies
+        # Flatten: (B, embed_dim, H_p * W_p) -> Transpose: (B, L, embed_dim)
+        x_flat = x_patched.flatten(2).transpose(1, 2)
+        
+        # --- 2. State-Space Sequence Modeling ---
         x_mamba = self.mamba(self.norm(x_flat))
         
-        # 3. Residual connection and reshape back to 2D spatial format
-        out = (x_flat + x_mamba).transpose(1, 2).view(B, C, H, W)
-        return out
+        # --- 3. Unpatchify ---
+        # Add residual in the latent space, then reshape to 2D
+        x_res = (x_flat + x_mamba).transpose(1, 2).view(B, self.embed_dim, H_p, W_p)
+        
+        # Project back to original spatial dimensions
+        out = self.patch_unembed(x_res)
+        
+        # Final global residual connection 
+        return out + x
 
 
 class LFD_Net(nn.Module):
@@ -50,9 +69,9 @@ class LFD_Net(nn.Module):
         # Gated Fusion
         self.gate = nn.Conv2d(32 * 3, 3, 3, 1, 1, bias=True)
         
-        # Global Feature Interaction via SSM (Replaces CALayer and PALayer)
-        # 64 represents the channel dimension of the concatenated tensor x7
-        self.ssm_layer = VisionSSMBlock(dim=64)
+        # Global Feature Interaction via Patch-SSM
+        # We pass the channel dimension (64) and set patch_size=8
+        self.ssm_layer = VisionSSMBlock(dim=64, patch_size=8)
 
     def forward(self, img):
         # Multi-scale feature extraction
@@ -69,8 +88,7 @@ class LFD_Net(nn.Module):
         x7 = torch.cat((x6, x3), 1)
         
         # --- SSM Integration ---
-        # x7 is passed through the SSM. 
-        # This acts as a spatial-spectral global routing mechanism.
+        # The SSM now safely processes the features without memory explosion
         x_global = self.ssm_layer(x7)
         # -----------------------
 

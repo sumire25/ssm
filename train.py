@@ -47,7 +47,7 @@ def train(args):
 
     criterion = nn.MSELoss().cuda()
     optimizer = torch.optim.Adam(lfd_net.parameters(), lr=float(args["learning_rate"]), weight_decay=0.0001)
-    scheduler = CosineAnnealingLR(optimizer, T_max=30)
+    scheduler = CosineAnnealingLR(optimizer, T_max=50)
     lfd_net.train()
 
     num_of_epochs = int(args["epochs"])
