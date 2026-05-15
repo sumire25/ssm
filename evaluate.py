@@ -15,12 +15,11 @@ def calculate_sam(img1, img2):
     norm1 = np.sqrt(np.sum(img1**2, axis=2))
     norm2 = np.sqrt(np.sum(img2**2, axis=2))
     
-    # Evitar divisiones por cero
     norm1[norm1 == 0] = 1e-6
     norm2[norm2 == 0] = 1e-6
     
     cos_theta = inner_product / (norm1 * norm2)
-    cos_theta = np.clip(cos_theta, -1.0, 1.0) # Estabilidad numérica
+    cos_theta = np.clip(cos_theta, -1.0, 1.0) 
     
     sam = np.arccos(cos_theta)
     return np.mean(sam) * (180 / np.pi)
@@ -30,9 +29,7 @@ def calculate_ergas(img1, img2):
     img1 = img1.astype(np.float32)
     img2 = img2.astype(np.float32)
     
-    # RMSE por canal
     rmse = np.sqrt(np.mean((img1 - img2)**2, axis=(0,1)))
-    # Media de la imagen de referencia por canal
     mean_ref = np.mean(img2, axis=(0,1))
     mean_ref[mean_ref == 0] = 1e-6
     
@@ -87,8 +84,18 @@ def main():
     for image_name in result_dirs:
         try: 
             corrected = io.imread(os.path.join(result_path, image_name))
-            reference = io.imread(os.path.join(reference_path, image_name))
-        except Exception:
+            
+            # MODIFIED: Haze1k mapping logic
+            target_name = image_name.replace('-inputs.png', '-targets.png')
+            
+            # Fallback to exact match if target_name is not found (e.g., standard datasets)
+            if not os.path.exists(os.path.join(reference_path, target_name)):
+                target_name = image_name
+                
+            reference = io.imread(os.path.join(reference_path, target_name))
+            
+        except Exception as e:
+            print(f"Skipping {image_name} due to error: {e}")
             continue
             
         cnt += 1
@@ -105,6 +112,10 @@ def main():
         
         with open('metrics.txt', 'a') as f:
             f.write(f'{image_name}: psnr={psnr:.4f} ssim={ssim:.4f} sam={sam:.4f} ergas={ergas:.4f} cie={ciede:.4f} sseq={sseq:.4f}\n')
+
+    if cnt == 0:
+        print("No valid image pairs found for evaluation.")
+        return
 
     mean_psnr = sum_psnr / cnt
     mean_ssim = sum_ssim / cnt

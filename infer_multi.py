@@ -22,8 +22,8 @@ def image_haze_removel(input_image, lfd_net):
 def multiple_dehaze_test(test_directory, save_directory, weights_path):
     os.makedirs(save_directory, exist_ok=True)
     
-    # Se instancia y carga el modelo una sola vez fuera del bucle
-    lfd_net = model.LFD_Net().cuda()
+    # MODIFIED: Instantiates the new SSM architecture
+    lfd_net = model.LFD_Net_SSM().cuda()
     lfd_net.load_state_dict(torch.load(weights_path))
     lfd_net.eval()
     
@@ -34,7 +34,6 @@ def multiple_dehaze_test(test_directory, save_directory, weights_path):
         except Exception:
             continue
         
-        # Se pasa la instancia del modelo a la función de inferencia
         dehaze_image = image_haze_removel(image, lfd_net)
         torchvision.utils.save_image(dehaze_image, os.path.join(save_directory, filename))
 
