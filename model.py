@@ -52,9 +52,9 @@ class VisionSSMBlock(nn.Module):
         return out + x
 
 
-class LFD_Net(nn.Module):
+class LFD_Net_SSM(nn.Module):
     def __init__(self):
-        super(LFD_Net, self).__init__()
+        super(LFD_Net_SSM, self).__init__()
 
         # Feature Extraction Architecture
         self.relu = nn.LeakyReLU(inplace=True)
